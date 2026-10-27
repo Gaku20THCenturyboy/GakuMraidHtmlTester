@@ -32,10 +32,10 @@
   #dropZone p{color:var(--muted);font-size:14px;line-height:1.55;margin:8px auto;max-width:680px}
   #dropZone .note{font-size:12.5px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:10px 14px;border-radius:8px;margin-top:16px;text-align:left}
   #dropZone .actions{margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-  #pasteWrap{margin-top:18px;text-align:left;display:none}
-  #pasteWrap .urlRow{display:flex;gap:8px}
-  #pasteWrap .urlRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;font-family:ui-monospace,Consolas,monospace}
-  #pasteWrap .or{text-align:center;color:var(--muted);font-size:12px;margin:10px 0 6px}
+  #pasteWrap,#urlWrap{margin-top:18px;text-align:left;display:none}
+  #urlWrap .urlRow{display:flex;gap:8px}
+  #urlWrap .urlRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;font-family:ui-monospace,Consolas,monospace}
+  #urlWrap .hint{font-size:12px;color:var(--muted);margin-top:6px}
   #pasteWrap textarea{width:100%;height:180px;font-family:ui-monospace,Consolas,monospace;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical}
   .err{color:var(--danger);font-weight:600;margin-top:12px;font-size:13px}
   .err.warn{color:var(--warn)}
@@ -107,16 +107,19 @@
   <div class="actions">
     <button class="btn primary" id="btnPick">Upload or drop HTML file</button>
     <button class="btn" id="btnTogglePaste">Paste HTML instead</button>
+    <button class="btn" id="btnToggleUrl">Load from URL</button>
     <input type="file" id="fileInput" accept=".html,.htm,text/html" style="display:none">
   </div>
   <div id="pasteWrap">
+    <textarea id="pasteArea" placeholder="&lt;!doctype html&gt; … paste your full playable HTML here …"></textarea>
+    <div style="margin-top:8px"><button class="btn primary sm" id="btnLoadPaste">Load pasted HTML</button></div>
+  </div>
+  <div id="urlWrap">
     <div class="urlRow">
-      <input type="url" id="urlInput" placeholder="https://… link to the playable HTML (AppLovin / Aliyun OSS preview links work too)" spellcheck="false">
+      <input type="url" id="urlInput" placeholder="https://… link to the playable HTML" spellcheck="false">
       <button class="btn primary sm" id="btnLoadUrl">Load URL</button>
     </div>
-    <div class="or">— or —</div>
-    <textarea id="pasteArea" placeholder="&lt;!doctype html&gt; … paste your full playable HTML here (or just paste a URL) …"></textarea>
-    <div style="margin-top:8px"><button class="btn primary sm" id="btnLoadPaste">Load pasted HTML</button></div>
+    <div class="hint">AppLovin / Aliyun OSS preview links are unwrapped automatically. The server must allow cross-origin requests (CORS); otherwise download the file and upload it.</div>
   </div>
   <div class="note"><b>Note:</b> Always test the final files inside the real SDK environments. This tool does not judge the quality of your playable, it only exposes all MRAID calls and responses so you can verify the integration.</div>
   <div class="err" id="errMsg"></div>
@@ -545,11 +548,22 @@
   // ---------- wiring ----------
   $('btnPick').onclick = () => $('fileInput').click();
   $('fileInput').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
-  $('btnTogglePaste').onclick = () => { const w = $('pasteWrap'); w.style.display = w.style.display === 'block' ? 'none' : 'block'; };
+  function togglePanel(which) {
+    const panels = { paste: ['pasteWrap', 'btnTogglePaste'], url: ['urlWrap', 'btnToggleUrl'] };
+    const open = $(panels[which][0]).style.display !== 'block';
+    for (const k in panels) {
+      const on = open && k === which;
+      $(panels[k][0]).style.display = on ? 'block' : 'none';
+      $(panels[k][1]).classList.toggle('active', on);
+    }
+    if (open) $(which === 'url' ? 'urlInput' : 'pasteArea').focus();
+  }
+  $('btnTogglePaste').onclick = () => togglePanel('paste');
+  $('btnToggleUrl').onclick = () => togglePanel('url');
   $('btnLoadPaste').onclick = () => {
     const t = $('pasteArea').value;
     if (!t.trim()) { setError('Paste some HTML or a URL first.'); return; }
-    if (URL_RE.test(t)) { $('urlInput').value = t.trim(); loadFromURL(t); return; }   // a bare link was pasted
+    if (URL_RE.test(t)) { $('urlInput').value = t.trim(); togglePanel('url'); loadFromURL(t); return; }   // a bare link was pasted into the HTML box
     loadHTML(t, 'pasted.html');
   };
   $('btnLoadUrl').onclick = () => loadFromURL($('urlInput').value);
