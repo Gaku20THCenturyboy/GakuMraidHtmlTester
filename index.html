@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MRAID Playable Tester</title>
+<style>
+  :root{
+    --bg:#f3f4f8; --panel:#ffffff; --border:#dde1e6; --text:#1a1b2e; --muted:#6b7280;
+    --primary:#3b52e9; --primary-h:#2f43c7; --success:#22bb33; --warn:#f97316; --danger:#e24c4c;
+    --canvas:#1f2028; --log-bg:#0f1117; --log-text:#d7dbe3; --log-info:#7dd3fc; --log-warn:#fbbf24; --log-err:#f87171; --log-mraid:#a3e635; --log-host:#c084fc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  header{display:flex;align-items:center;gap:14px;padding:10px 18px;background:#fff;border-bottom:1px solid var(--border)}
+  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px}
+  header .sub{font-size:12px;color:var(--muted)}
+  header .spacer{flex:1}
+  .btn{appearance:none;border:1px solid var(--border);background:#fff;color:var(--text);padding:7px 12px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .btn:hover:not(:disabled){border-color:#b9c0cc;background:#f8f9fb}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.primary:hover:not(:disabled){background:var(--primary-h)}
+  .btn.danger{color:var(--danger);border-color:#f3c3c3}
+  .btn.sm{padding:5px 9px;font-size:12px}
+  .btn.active{background:#e9ecfd;border-color:var(--primary);color:var(--primary)}
+
+  /* upload screen */
+  #dropZone{max-width:860px;margin:40px auto;background:var(--panel);border:2px dashed #c3c8d3;border-radius:14px;padding:38px 40px;text-align:center;transition:.15s}
+  #dropZone.over{border-color:var(--primary);background:#eef1ff}
+  #dropZone h2{margin:0 0 10px;font-size:22px}
+  #dropZone p{color:var(--muted);font-size:14px;line-height:1.55;margin:8px auto;max-width:680px}
+  #dropZone .note{font-size:12.5px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:10px 14px;border-radius:8px;margin-top:16px;text-align:left}
+  #dropZone .actions{margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  #pasteWrap{margin-top:18px;text-align:left;display:none}
+  #pasteWrap textarea{width:100%;height:180px;font-family:ui-monospace,Consolas,monospace;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical}
+  .err{color:var(--danger);font-weight:600;margin-top:12px;font-size:13px}
+  .err.warn{color:var(--warn)}
+
+  /* workspace */
+  #workspace{display:none;flex-direction:column;height:calc(100% - 55px)}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#fff;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .toolbar .group{display:flex;align-items:center;gap:6px;padding-right:10px;margin-right:4px;border-right:1px solid var(--border)}
+  .toolbar .group:last-child{border-right:0}
+  .toolbar label{font-size:12px;color:var(--muted);font-weight:600}
+  .toolbar select{border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12.5px;background:#fff}
+  .toolbar input[type=range]{width:110px}
+  .vol{font-size:12px;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+  .state{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11.5px;font-weight:700;background:#eef0f4;color:#374151}
+  .pill.ok{background:#dcfce7;color:#166534}.pill.hid{background:#fee2e2;color:#991b1b}.pill.load{background:#fef3c7;color:#92400e}
+
+  .main{flex:1;display:flex;min-height:0}
+  .canvas{flex:1;background:var(--canvas);display:flex;align-items:center;justify-content:center;overflow:auto;padding:20px;position:relative}
+  .device{background:#000;border-radius:28px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.5);transition:width .25s,height .25s}
+  .device iframe{display:block;width:100%;height:100%;border:0;background:#fff;border-radius:18px}
+  .dim{position:absolute;left:14px;bottom:10px;font-size:11.5px;color:#9aa0ab;font-family:ui-monospace,Consolas,monospace}
+
+  .side{width:440px;min-width:300px;display:flex;flex-direction:column;background:var(--log-bg);color:var(--log-text);border-left:1px solid #22252e}
+  .side .tabs{display:flex;border-bottom:1px solid #22252e}
+  .side .tabs button{flex:1;background:none;border:0;color:#9aa0ab;padding:9px;font-size:12.5px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent}
+  .side .tabs button.on{color:#fff;border-bottom-color:var(--primary)}
+  .side .pane{flex:1;display:none;flex-direction:column;min-height:0}
+  .side .pane.on{display:flex}
+  .logtools{display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid #22252e;align-items:center;flex-wrap:wrap}
+  .logtools input[type=text]{flex:1;min-width:90px;background:#171a22;border:1px solid #2b2f3a;color:#fff;border-radius:6px;padding:5px 8px;font-size:12px}
+  .logtools .chk{font-size:11.5px;color:#9aa0ab;display:inline-flex;gap:3px;align-items:center}
+  .logtools .btn{background:#171a22;border-color:#2b2f3a;color:#d7dbe3}
+  #logs{flex:1;overflow:auto;font-family:ui-monospace,Consolas,"SF Mono",monospace;font-size:12px;padding:6px 0}
+  .line{display:flex;gap:8px;padding:3px 10px;border-bottom:1px solid #161922;white-space:pre-wrap;word-break:break-word}
+  .line .t{color:#5f6676;flex:none;font-variant-numeric:tabular-nums}
+  .line .k{flex:none;width:52px;font-weight:700;text-transform:uppercase;font-size:10.5px;padding-top:1.5px}
+  .line.log .k{color:#9aa0ab}.line.info .k{color:var(--log-info)}.line.warn{background:#1d1a10}.line.warn .k{color:var(--log-warn)}
+  .line.error{background:#221416}.line.error .k{color:var(--log-err)}.line.mraid .k{color:var(--log-mraid)}.line.host .k{color:var(--log-host)}
+  .line.event .k{color:#f0abfc}
+  .empty{color:#5f6676;padding:20px;text-align:center;font-size:12.5px}
+
+  #summary{padding:12px;overflow:auto;font-size:12.5px}
+  #summary h3{margin:10px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#9aa0ab}
+  .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #1c1f28}
+  .row .v{font-family:ui-monospace,Consolas,monospace;color:#fff;text-align:right}
+  .chk-ok{color:#4ade80}.chk-bad{color:#f87171}.chk-na{color:#9aa0ab}
+  .counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+  .counts div{background:#171a22;border-radius:8px;padding:8px;text-align:center}
+  .counts b{display:block;font-size:20px;color:#fff}
+  .counts span{font-size:11px;color:#9aa0ab}
+  @media (max-width:900px){.main{flex-direction:column}.side{width:100%;height:40%;border-left:0;border-top:1px solid #22252e}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GAKU MRAID Playable Tester</h1>
+  <span class="sub">Simulate an MRAID 2.0 / 3.0 host (Unity, AppLovin, ironSource, Mintegral…) and inspect every MRAID call your playable makes.</span>
+  <span class="spacer"></span>
+  <button class="btn sm" id="btnNewFile" style="display:none">Open another file</button>
+</header>
+
+<!-- ============ Upload screen ============ -->
+<section id="dropZone">
+  <h2>MRAID Playable Ads Validator</h2>
+  <p>Drag your Playable Ad HTML file with <b>MRAID v2.0 or v3.0</b> support. The tool replaces the <code>&lt;script src="mraid.js"&gt;</code> tag with a simulated host, runs the ad in a phone frame and logs every MRAID response.</p>
+  <p>Max file size here is 10&nbsp;MB, but the usual max size for Playable Ads is around 5&nbsp;MB.</p>
+  <div class="actions">
+    <button class="btn primary" id="btnPick">Upload or drop HTML file</button>
+    <button class="btn" id="btnTogglePaste">Paste HTML instead</button>
+    <input type="file" id="fileInput" accept=".html,.htm,text/html" style="display:none">
+  </div>
+  <div id="pasteWrap">
+    <textarea id="pasteArea" placeholder="&lt;!doctype html&gt; … paste your full playable HTML here …"></textarea>
+    <div style="margin-top:8px"><button class="btn primary sm" id="btnLoadPaste">Load pasted HTML</button></div>
+  </div>
+  <div class="note"><b>Note:</b> Always test the final files inside the real SDK environments. This tool does not judge the quality of your playable, it only exposes all MRAID calls and responses so you can verify the integration.</div>
+  <div class="err" id="errMsg"></div>
+</section>
+
+<!-- ============ Workspace ============ -->
+<section id="workspace">
+  <div class="toolbar">
+    <div class="group">
+      <button class="btn primary sm" id="cmdReady" title="Fire mraid 'ready' event, set state to default (what the SDK does when the ad is shown)">▶ Start (ready)</button>
+      <button class="btn sm" id="cmdOrientation" title="Rotate the device and send sizeChange / exposureChange">⟳ Change orientation</button>
+    </div>
+    <div class="group">
+      <button class="btn sm" id="cmdHidden" title="Set hidden state (stateChange + viewableChange(false) + exposureChange(0))">Set Hidden state</button>
+      <button class="btn sm" id="cmdDefault" title="Set default state (stateChange + viewableChange(true) + exposureChange(100))">Set Default state</button>
+    </div>
+    <div class="group">
+      <button class="btn sm" id="cmdMute" title="audioVolumeChange(0)">🔇 Mute</button>
+      <label for="volume">Volume</label>
+      <input type="range" id="volume" min="0" max="100" value="100" title="audioVolumeChange(value) on release">
+      <span class="vol" id="volLabel">100</span>
+    </div>
+    <div class="group">
+      <label for="device">Device</label>
+      <select id="device">
+        <option value="390x844">iPhone 14 (390×844)</option>
+        <option value="375x667">iPhone SE (375×667)</option>
+        <option value="430x932">iPhone 15 Pro Max (430×932)</option>
+        <option value="360x800">Android (360×800)</option>
+        <option value="412x915">Pixel 7 (412×915)</option>
+        <option value="768x1024">iPad (768×1024)</option>
+        <option value="320x480">Small (320×480)</option>
+      </select>
+      <label for="zoom">Zoom</label>
+      <select id="zoom">
+        <option value="1">100%</option><option value="0.85">85%</option><option value="0.75" selected>75%</option><option value="0.6">60%</option><option value="0.5">50%</option>
+      </select>
+    </div>
+    <div class="group">
+      <button class="btn sm" id="cmdReload" title="Reload the ad from scratch (state back to loading)">↻ Reload</button>
+      <button class="btn sm danger" id="cmdClose" title="Close preview">✕ Close</button>
+    </div>
+    <div class="state">
+      state <span class="pill load" id="pillState">loading</span>
+      ready <span class="pill" id="pillReady">no</span>
+      <span id="fileName" style="margin-left:6px"></span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="canvas">
+      <div class="device" id="deviceWrap">
+        <iframe id="frame" scrolling="no" allow="autoplay; fullscreen"></iframe>
+      </div>
+      <div class="dim" id="dim"></div>
+    </div>
+
+    <aside class="side">
+      <div class="tabs">
+        <button class="on" data-tab="logs">Logs <span id="logCount"></span></button>
+        <button data-tab="summary">Summary / Checks</button>
+      </div>
+
+      <div class="pane on" id="pane-logs">
+        <div class="logtools">
+          <input type="text" id="filter" placeholder="filter…">
+          <label class="chk"><input type="checkbox" id="fMraid" checked> mraid</label>
+          <label class="chk"><input type="checkbox" id="fConsole" checked> console</label>
+          <label class="chk"><input type="checkbox" id="fHost" checked> host</label>
+          <button class="btn sm" id="btnCopy">Copy</button>
+          <button class="btn sm" id="btnClear">Clear</button>
+        </div>
+        <div id="logs"><div class="empty">Load a playable, then press <b>Start</b>.</div></div>
+      </div>
+
+      <div class="pane" id="pane-summary"><div id="summary"></div></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ============ Simulated mraid.js injected into the ad ============ -->
+<script type="text/plain" id="mraidShim">
+(function () {
+  if (window.__mraidShimLoaded) return; window.__mraidShimLoaded = true;
+  var PARENT = window.parent;
+  function post(type, data, extra) { try { PARENT.postMessage(Object.assign({ __mraidTester: true, type: type, data: data }, extra || {}), '*'); } catch (e) {} }
+  function ser(args) { return Array.prototype.map.call(args, function (a) {
+    if (a instanceof Error) return a.name + ': ' + a.message + (a.stack ? '\n' + a.stack : '');
+    if (typeof a === 'object' && a !== null) { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+    return String(a); }).join(' '); }
+
+  // ---- console forwarding ----
+  ['log', 'info', 'warn', 'error', 'debug'].forEach(function (k) {
+    var orig = console[k] ? console[k].bind(console) : function () {};
+    console[k] = function () { orig.apply(null, arguments); post('console-' + (k === 'debug' ? 'log' : k), ser(arguments)); };
+  });
+  window.addEventListener('error', function (e) { post('console-error', 'Uncaught ' + (e.message || '') + ' (' + (e.filename || '') + ':' + e.lineno + ')'); });
+  window.addEventListener('unhandledrejection', function (e) { post('console-error', 'Unhandled promise rejection: ' + ser([e.reason])); });
+  post('shim', 'mraid.js (simulated) loaded');
+
+  // ---- state ----
+  var listeners = {};
+  var mraid = {};
+  var state = 'loading';
+  var viewable = false;
+  var placement = 'interstitial';
+  var screen = function () { return { width: window.innerWidth, height: window.innerHeight }; };
+  var orientationProps = { allowOrientationChange: true, forceOrientation: 'none' };
+  var expandProps = { width: 0, height: 0, useCustomClose: false, isModal: true };
+  var resizeProps = {};
+  var volume = 100;
+
+  function call(name, args, ret) { post('mraid-call', name + '(' + ser(args || []) + ')' + (ret !== undefined ? ' → ' + ser([ret]) : ''), { method: name }); }
+  function fire(type) {
+    var params = Array.prototype.slice.call(arguments, 1);
+    post('mraid-event', type + (params.length ? ' ' + ser(params) : ''), { event: type, hasListener: !!(listeners[type] && listeners[type].size) });
+    if (!listeners[type]) return;
+    listeners[type].forEach(function (h) { try { h.apply(null, params); } catch (err) { console.error('Error in mraid "' + type + '" listener:', err); } });
+  }
+
+  // ---- API ----
+  mraid.addEventListener = function (type, handler) {
+    if (!listeners[type]) listeners[type] = new Set();
+    listeners[type].add(handler);
+    post('mraid-call', 'addEventListener("' + type + '")', { method: 'addEventListener', event: type });
+    if (type === 'ready' && state !== 'loading') { post('mraid-event', 'ready (fired immediately because ad already ready)', { event: 'ready', hasListener: true }); try { handler(); } catch (e) { console.error(e); } }
+  };
+  mraid.removeEventListener = function (type, handler) {
+    post('mraid-call', 'removeEventListener("' + type + '")', { method: 'removeEventListener' });
+    if (!listeners[type]) return;
+    if (handler) listeners[type].delete(handler); else listeners[type].clear();
+  };
+  mraid.getVersion = function () { call('getVersion', [], '3.0'); return '3.0'; };
+  mraid.getState = function () { call('getState', [], state); return state; };
+  mraid.isViewable = function () { call('isViewable', [], viewable); return viewable; };
+  mraid.getPlacementType = function () { call('getPlacementType', [], placement); return placement; };
+  mraid.supports = function (f) { var r = false; call('supports', [f], r); return r; };
+  mraid.getScreenSize = function () { var r = screen(); call('getScreenSize', [], r); return r; };
+  mraid.getMaxSize = function () { var r = screen(); call('getMaxSize', [], r); return r; };
+  mraid.getCurrentPosition = function () { var s = screen(); var r = { x: 0, y: 0, width: s.width, height: s.height }; call('getCurrentPosition', [], r); return r; };
+  mraid.getDefaultPosition = function () { var s = screen(); var r = { x: 0, y: 0, width: s.width, height: s.height }; call('getDefaultPosition', [], r); return r; };
+  mraid.getCurrentAppOrientation = function () { var r = { orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait', locked: false }; call('getCurrentAppOrientation', [], r); return r; };
+  mraid.getOrientationProperties = function () { call('getOrientationProperties', [], orientationProps); return orientationProps; };
+  mraid.setOrientationProperties = function (p) { call('setOrientationProperties', [p]); orientationProps = Object.assign({}, orientationProps, p || {}); };
+  mraid.getExpandProperties = function () { call('getExpandProperties', [], expandProps); return expandProps; };
+  mraid.setExpandProperties = function (p) { call('setExpandProperties', [p]); expandProps = Object.assign({}, expandProps, p || {}); };
+  mraid.getResizeProperties = function () { call('getResizeProperties', [], resizeProps); return resizeProps; };
+  mraid.setResizeProperties = function (p) { call('setResizeProperties', [p]); resizeProps = p || {}; };
+  mraid.getLocation = function () { call('getLocation', [], -1); return -1; };
+
+  mraid.open = function (url) { call('open', [url]); post('mraid-open', url); };
+  mraid.close = function () { call('close', []); post('mraid-close', ''); state = 'hidden'; viewable = false; fire('stateChange', state); fire('viewableChange', false); };
+  mraid.unload = function () { call('unload', []); post('mraid-close', 'unload'); };
+  mraid.expand = function (url) { call('expand', [url]); state = 'expanded'; fire('stateChange', state); };
+  mraid.resize = function () { call('resize', []); state = 'resized'; fire('stateChange', state); };
+  mraid.useCustomClose = function (b) { call('useCustomClose', [b]); expandProps.useCustomClose = !!b; };
+  mraid.playVideo = function (url) { call('playVideo', [url]); };
+  mraid.storePicture = function (url) { call('storePicture', [url]); };
+  mraid.createCalendarEvent = function (p) { call('createCalendarEvent', [p]); };
+  mraid.initVpaid = function (v) { call('initVpaid', [v]); };
+
+  // ---- host commands ----
+  function setReady() {
+    if (state !== 'loading') { post('shim', 'already ready, ignoring'); return; }
+    state = 'default'; viewable = true;
+    fire('ready');
+    fire('stateChange', state);
+    fire('viewableChange', true);
+    fire('exposureChange', 100, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }, null);
+  }
+  window.addEventListener('message', function (ev) {
+    var d = ev.data; if (!d || !d.__mraidHost) return;
+    post('host', 'command: ' + d.command + (d.param !== undefined ? ' ' + ser([d.param]) : ''));
+    switch (d.command) {
+      case 'ready': setReady(); break;
+      case 'hide': state = 'hidden'; viewable = false; fire('stateChange', state); fire('viewableChange', false); fire('exposureChange', 0, { x: 0, y: 0, width: 0, height: 0 }, null); break;
+      case 'show': state = 'default'; viewable = true; fire('stateChange', state); fire('viewableChange', true); fire('exposureChange', 100, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }, null); break;
+      case 'orientation': setTimeout(function () { fire('sizeChange', window.innerWidth, window.innerHeight); if (state === 'default') fire('exposureChange', 100, { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }, null); }, 50); break;
+      case 'volume': volume = d.param; fire('audioVolumeChange', volume); break;
+      case 'snapshot': post('snapshot', '', { listeners: Object.keys(listeners).filter(function (k) { return listeners[k].size; }), state: state }); break;
+    }
+  });
+  window.addEventListener('load', function () { post('shim', 'window.load fired in ad'); });
+  window.mraid = mraid;
+  post('shim', 'window.mraid ready, state = loading');
+})();
+</script>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const MAX_WARN = 5 * 1024 * 1024, MAX_HARD = 10 * 1024 * 1024;
+  const shim = $('mraidShim').textContent;
+
+  let blobURL = null, orientation = 'port', logs = [], stats = null, currentHTML = null, currentName = '';
+
+  // ---------- helpers ----------
+  function setError(msg, warn) { const e = $('errMsg'); e.textContent = msg || ''; e.className = 'err' + (warn ? ' warn' : ''); }
+  function ts() { const d = new Date(); return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'); }
+  function resetStats() {
+    stats = { calls: {}, events: {}, listeners: new Set(), opens: [], errors: 0, warns: 0, readyAt: null, loadAt: null, firstCallAt: null, hasMraidTag: false, fileSize: 0, usesVersion: null };
+  }
+
+  // ---------- inject shim ----------
+  function prepareHTML(text) {
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    let tag = null;
+    for (const s of doc.getElementsByTagName('script')) {
+      const src = (s.getAttribute('src') || '').trim();
+      if (/(^|\/)mraid\.js(\?.*)?$/i.test(src)) { tag = s; break; }
+    }
+    stats.hasMraidTag = !!tag;
+    if (tag) { tag.removeAttribute('src'); tag.removeAttribute('type'); tag.textContent = shim; }
+    else {
+      const s = doc.createElement('script'); s.textContent = shim;
+      const head = doc.head || doc.documentElement;
+      head.insertBefore(s, head.firstChild);
+    }
+    return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  }
+
+  function loadHTML(text, name) {
+    resetStats(); logs = []; renderLogs();
+    stats.fileSize = new Blob([text]).size;
+    stats.usesVersion = /mraid\.getVersion|MRAID\s*3|getCurrentAppOrientation|exposureChange/i.test(text) ? '3.0 features' : '2.0 style';
+    currentHTML = text; currentName = name;
+    const prepared = prepareHTML(text);
+    if (blobURL) URL.revokeObjectURL(blobURL);
+    blobURL = URL.createObjectURL(new Blob([prepared], { type: 'text/html' }));
+    $('dropZone').style.display = 'none'; $('workspace').style.display = 'flex'; $('btnNewFile').style.display = '';
+    $('fileName').textContent = name + ' · ' + (stats.fileSize / 1024).toFixed(0) + ' KB';
+    setState('loading'); $('pillReady').textContent = 'no'; $('pillReady').className = 'pill';
+    stats.loadAt = performance.now();
+    applyDevice();
+    $('frame').src = blobURL;
+    addLog('host', 'Loaded "' + name + '" (' + (stats.fileSize / 1024).toFixed(1) + ' KB). ' + (stats.hasMraidTag ? '<script src="mraid.js"> found and replaced by simulator.' : 'No <script src="mraid.js"> tag found — simulator injected at top of <head>.'));
+    if (!stats.hasMraidTag) addLog('console-warn', 'Playable does not reference mraid.js. Most SDKs (AppLovin, Unity, ironSource) require <script src="mraid.js"><\/script> in the <head>.');
+    renderSummary();
+  }
+
+  function loadFile(file) {
+    setError('');
+    if (!file) return;
+    if (!/\.html?$/i.test(file.name) && !(file.type || '').includes('html')) { setError('Unsupported file type: ' + (file.type || file.name) + '. Please upload only HTML files.'); return; }
+    if (file.size > MAX_HARD) { setError('The file is larger than 10 MB. Please use a smaller file.'); return; }
+    file.text().then(t => {
+      loadHTML(t, file.name);
+      if (file.size > MAX_WARN) addLog('console-warn', 'File size is larger than 5 MB (' + (file.size / 1024 / 1024).toFixed(2) + ' MB). Most networks limit playables to 5 MB.');
+    }).catch(e => setError('Could not read file: ' + e.message));
+  }
+
+  // ---------- device / orientation ----------
+  function applyDevice() {
+    const [w, h] = $('device').value.split('x').map(Number);
+    const z = parseFloat($('zoom').value);
+    const wrap = document.querySelector('.device');
+    const W = orientation === 'port' ? w : h, H = orientation === 'port' ? h : w;
+    wrap.style.width = (W * z + 24) + 'px'; wrap.style.height = (H * z + 24) + 'px';
+    const f = $('frame');
+    f.style.width = W + 'px'; f.style.height = H + 'px';
+    f.style.transform = 'scale(' + z + ')'; f.style.transformOrigin = '0 0';
+    $('dim').textContent = W + ' × ' + H + ' px · ' + (orientation === 'port' ? 'portrait' : 'landscape') + ' · zoom ' + Math.round(z * 100) + '%';
+  }
+
+  function send(command, param) {
+    const f = $('frame');
+    if (!f.contentWindow) return;
+    f.contentWindow.postMessage({ __mraidHost: true, command, param }, '*');
+  }
+  function setState(s) { const p = $('pillState'); p.textContent = s; p.className = 'pill ' + (s === 'default' ? 'ok' : s === 'hidden' ? 'hid' : 'load'); }
+
+  // ---------- logs ----------
+  function addLog(type, text, extra) {
+    const entry = { t: ts(), type, text, extra };
+    logs.push(entry); appendLine(entry); $('logCount').textContent = '(' + logs.length + ')';
+  }
+  function kindOf(type) {
+    if (type.startsWith('console-')) return { cls: type.slice(8), label: type.slice(8), cat: 'console' };
+    if (type === 'mraid-call') return { cls: 'mraid', label: 'call', cat: 'mraid' };
+    if (type === 'mraid-event') return { cls: 'event', label: 'event', cat: 'mraid' };
+    if (type === 'mraid-open') return { cls: 'mraid', label: 'OPEN', cat: 'mraid' };
+    if (type === 'mraid-close') return { cls: 'mraid', label: 'CLOSE', cat: 'mraid' };
+    return { cls: 'host', label: type === 'shim' ? 'shim' : 'host', cat: 'host' };
+  }
+  function visible(entry) {
+    const k = kindOf(entry.type);
+    if (k.cat === 'mraid' && !$('fMraid').checked) return false;
+    if (k.cat === 'console' && !$('fConsole').checked) return false;
+    if (k.cat === 'host' && !$('fHost').checked) return false;
+    const q = $('filter').value.trim().toLowerCase();
+    return !q || entry.text.toLowerCase().includes(q);
+  }
+  function appendLine(entry) {
+    if (!visible(entry)) return;
+    const box = $('logs'); const empty = box.querySelector('.empty'); if (empty) empty.remove();
+    const k = kindOf(entry.type);
+    const div = document.createElement('div'); div.className = 'line ' + k.cls;
+    div.innerHTML = '<span class="t">' + entry.t + '</span><span class="k">' + k.label + '</span><span class="m"></span>';
+    div.querySelector('.m').textContent = entry.text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+  function renderLogs() {
+    const box = $('logs'); box.innerHTML = '';
+    logs.forEach(appendLine);
+    if (!box.children.length) box.innerHTML = '<div class="empty">' + (logs.length ? 'No log matches the filter.' : 'Load a playable, then press <b>Start</b>.') + '</div>';
+    $('logCount').textContent = logs.length ? '(' + logs.length + ')' : '';
+  }
+
+  // ---------- messages from the ad ----------
+  window.addEventListener('message', ev => {
+    const d = ev.data; if (!d || !d.__mraidTester) return;
+    const now = performance.now();
+    if (d.type === 'snapshot') { d.listeners.forEach(l => stats.listeners.add(l)); renderSummary(); return; }
+    if (d.type === 'mraid-call') {
+      stats.calls[d.method] = (stats.calls[d.method] || 0) + 1;
+      if (!stats.firstCallAt) stats.firstCallAt = now;
+      if (d.method === 'addEventListener' && d.event) stats.listeners.add(d.event);
+    }
+    if (d.type === 'mraid-event') {
+      stats.events[d.event] = (stats.events[d.event] || 0) + 1;
+      if (d.event === 'ready' && !stats.readyAt) stats.readyAt = now;
+      if (!d.hasListener && ['ready'].includes(d.event)) addLog('console-warn', 'Host fired "' + d.event + '" but the ad has no listener for it.');
+      if (d.event === 'stateChange') setState(d.data.replace(/^stateChange\s*/, ''));
+    }
+    if (d.type === 'mraid-open') stats.opens.push(d.data);
+    if (d.type === 'console-error') stats.errors++;
+    if (d.type === 'console-warn') stats.warns++;
+    addLog(d.type, d.data, d);
+    renderSummary();
+  });
+
+  // ---------- summary ----------
+  function renderSummary() {
+    if (!stats) return;
+    const yes = (ok, txtOk, txtBad) => ok ? '<span class="chk-ok">✔ ' + txtOk + '</span>' : '<span class="chk-bad">✘ ' + txtBad + '</span>';
+    const na = t => '<span class="chk-na">– ' + t + '</span>';
+    const started = !!stats.readyAt;
+    const calls = Object.entries(stats.calls).sort((a, b) => b[1] - a[1]);
+    const events = Object.entries(stats.events);
+    const lis = [...stats.listeners];
+    const html = `
+      <div class="counts">
+        <div><b>${Object.values(stats.calls).reduce((a, b) => a + b, 0)}</b><span>mraid calls</span></div>
+        <div><b>${stats.opens.length}</b><span>mraid.open()</span></div>
+        <div><b style="${stats.errors ? 'color:#f87171' : ''}">${stats.errors}</b><span>JS errors</span></div>
+      </div>
+      <h3>Checks</h3>
+      <div class="row"><span>mraid.js script tag in HTML</span><span class="v">${yes(stats.hasMraidTag, 'found', 'missing')}</span></div>
+      <div class="row"><span>File size ≤ 5 MB</span><span class="v">${yes(stats.fileSize <= MAX_WARN, (stats.fileSize / 1024 / 1024).toFixed(2) + ' MB', (stats.fileSize / 1024 / 1024).toFixed(2) + ' MB')}</span></div>
+      <div class="row"><span>Ad touches window.mraid</span><span class="v">${yes(calls.length > 0, 'yes', 'no MRAID call yet')}</span></div>
+      <div class="row"><span>Listens for "ready"</span><span class="v">${yes(lis.includes('ready'), 'yes', 'no')}</span></div>
+      <div class="row"><span>Checks getState() before ready</span><span class="v">${yes(!!stats.calls.getState, 'yes', 'no (recommended)')}</span></div>
+      <div class="row"><span>Listens for "viewableChange"</span><span class="v">${lis.includes('viewableChange') ? yes(true, 'yes') : na('no (optional, MRAID 2.0)')}</span></div>
+      <div class="row"><span>Listens for "exposureChange"</span><span class="v">${lis.includes('exposureChange') ? yes(true, 'yes') : na('no (optional, MRAID 3.0)')}</span></div>
+      <div class="row"><span>Listens for "sizeChange"</span><span class="v">${lis.includes('sizeChange') ? yes(true, 'yes') : na('no (optional)')}</span></div>
+      <div class="row"><span>Listens for "audioVolumeChange"</span><span class="v">${lis.includes('audioVolumeChange') ? yes(true, 'yes') : na('no (optional)')}</span></div>
+      <div class="row"><span>Calls mraid.open() (CTA)</span><span class="v">${stats.opens.length ? yes(true, stats.opens.length + '× ' + stats.opens[stats.opens.length - 1]) : na('not yet — tap the CTA in the ad')}</span></div>
+      <div class="row"><span>No JS errors</span><span class="v">${yes(stats.errors === 0, 'clean', stats.errors + ' error(s)')}</span></div>
+      <div class="row"><span>Host → ready sent</span><span class="v">${started ? yes(true, 'yes, +' + Math.round(stats.readyAt - stats.loadAt) + ' ms after load') : na('press Start')}</span></div>
+      <h3>Registered listeners (${lis.length})</h3>
+      <div style="font-family:ui-monospace,Consolas,monospace">${lis.length ? lis.join(', ') : '<span class="chk-na">none</span>'}</div>
+      <h3>MRAID calls by method</h3>
+      ${calls.length ? calls.map(([m, n]) => `<div class="row"><span>${m}</span><span class="v">${n}</span></div>`).join('') : '<span class="chk-na">none</span>'}
+      <h3>Events fired by host</h3>
+      ${events.length ? events.map(([m, n]) => `<div class="row"><span>${m}</span><span class="v">${n}</span></div>`).join('') : '<span class="chk-na">none</span>'}
+      <h3>Detected style</h3>
+      <div class="row"><span>Source hints</span><span class="v">${stats.usesVersion}</span></div>
+    `;
+    $('summary').innerHTML = html;
+  }
+
+  // ---------- wiring ----------
+  $('btnPick').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
+  $('btnTogglePaste').onclick = () => { const w = $('pasteWrap'); w.style.display = w.style.display === 'block' ? 'none' : 'block'; };
+  $('btnLoadPaste').onclick = () => { const t = $('pasteArea').value; if (!t.trim()) { setError('Paste some HTML first.'); return; } loadHTML(t, 'pasted.html'); };
+  $('btnNewFile').onclick = () => { closePreview(); };
+
+  const dz = $('dropZone');
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
+  dz.addEventListener('drop', e => loadFile(e.dataTransfer.files[0]));
+  // also accept drops anywhere on the workspace
+  document.body.addEventListener('dragover', e => e.preventDefault());
+  document.body.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files[0] && $('workspace').style.display === 'flex') loadFile(e.dataTransfer.files[0]); });
+
+  $('cmdReady').onclick = () => { send('ready'); $('pillReady').textContent = 'yes'; $('pillReady').className = 'pill ok'; };
+  $('cmdOrientation').onclick = () => { orientation = orientation === 'port' ? 'land' : 'port'; applyDevice(); send('orientation'); };
+  $('cmdHidden').onclick = () => send('hide');
+  $('cmdDefault').onclick = () => send('show');
+  $('cmdMute').onclick = () => { $('volume').value = 0; $('volLabel').textContent = '0'; send('volume', 0); };
+  $('volume').oninput = e => $('volLabel').textContent = e.target.value;
+  $('volume').onchange = e => send('volume', Number(e.target.value));
+  $('device').onchange = () => { applyDevice(); send('orientation'); };
+  $('zoom').onchange = applyDevice;
+  $('cmdReload').onclick = () => { if (currentHTML) loadHTML(currentHTML, currentName); };
+  $('cmdClose').onclick = closePreview;
+  function closePreview() {
+    $('frame').src = 'about:blank';
+    if (blobURL) { URL.revokeObjectURL(blobURL); blobURL = null; }
+    $('workspace').style.display = 'none'; $('dropZone').style.display = ''; $('btnNewFile').style.display = 'none';
+    orientation = 'port';
+  }
+
+  $('filter').oninput = renderLogs;
+  ['fMraid', 'fConsole', 'fHost'].forEach(id => $(id).onchange = renderLogs);
+  $('btnClear').onclick = () => { logs = []; renderLogs(); };
+  $('btnCopy').onclick = () => {
+    const txt = logs.filter(visible).map(l => l.t + ' [' + kindOf(l.type).label + '] ' + l.text).join('\n');
+    navigator.clipboard.writeText(txt).then(() => { $('btnCopy').textContent = 'Copied!'; setTimeout(() => $('btnCopy').textContent = 'Copy', 1200); });
+  };
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.tab));
+    if (b.dataset.tab === 'summary') { send('snapshot'); renderSummary(); }
+  });
+  window.addEventListener('beforeunload', () => { if (blobURL) URL.revokeObjectURL(blobURL); });
+})();
+</script>
+</body>
+</html>

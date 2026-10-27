@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Sample MRAID playable</title>
+<script src="mraid.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:linear-gradient(160deg,#1e3a8a,#9333ea);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  h1{font-size:28px;margin:0 0 8px}
+  #status{font-size:13px;opacity:.85;margin-bottom:24px;white-space:pre-line}
+  button{font-size:20px;padding:16px 36px;border-radius:40px;border:0;background:#facc15;color:#1e1b4b;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  #overlay{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;font-size:22px}
+</style>
+</head>
+<body>
+  <h1>Sample Playable</h1>
+  <div id="status">waiting for mraid…</div>
+  <button id="cta">INSTALL NOW</button>
+  <div id="overlay">PAUSED (not viewable)</div>
+<script>
+  var statusEl = document.getElementById('status');
+  function log(m){ statusEl.textContent = m + "\n" + statusEl.textContent.split("\n").slice(0,5).join("\n"); console.log('[ad] ' + m); }
+
+  function start(){
+    log('ready! version ' + mraid.getVersion() + ', state ' + mraid.getState() + ', viewable ' + mraid.isViewable());
+    var s = mraid.getScreenSize(); log('screen ' + s.width + 'x' + s.height);
+    mraid.setOrientationProperties({allowOrientationChange:true, forceOrientation:'none'});
+    mraid.addEventListener('viewableChange', function(v){ log('viewableChange ' + v); document.getElementById('overlay').style.display = v ? 'none' : 'flex'; });
+    mraid.addEventListener('exposureChange', function(p){ log('exposureChange ' + p + '%'); });
+    mraid.addEventListener('sizeChange', function(w,h){ log('sizeChange ' + w + 'x' + h); });
+    mraid.addEventListener('stateChange', function(st){ log('stateChange ' + st); });
+    mraid.addEventListener('audioVolumeChange', function(v){ log('audioVolumeChange ' + v); });
+  }
+
+  if (typeof mraid === 'undefined') { log('mraid not found, running standalone'); }
+  else if (mraid.getState() === 'loading') { mraid.addEventListener('ready', start); }
+  else { start(); }
+
+  document.getElementById('cta').addEventListener('click', function(){
+    if (typeof mraid !== 'undefined') mraid.open('https://apps.apple.com/app/id123456789');
+    else window.open('https://apps.apple.com/app/id123456789');
+  });
+</script>
+</body>
+</html>
