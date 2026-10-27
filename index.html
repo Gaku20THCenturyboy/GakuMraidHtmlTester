@@ -33,6 +33,9 @@
   #dropZone .note{font-size:12.5px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:10px 14px;border-radius:8px;margin-top:16px;text-align:left}
   #dropZone .actions{margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
   #pasteWrap{margin-top:18px;text-align:left;display:none}
+  #pasteWrap .urlRow{display:flex;gap:8px}
+  #pasteWrap .urlRow input{flex:1;min-width:0;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;font-family:ui-monospace,Consolas,monospace}
+  #pasteWrap .or{text-align:center;color:var(--muted);font-size:12px;margin:10px 0 6px}
   #pasteWrap textarea{width:100%;height:180px;font-family:ui-monospace,Consolas,monospace;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical}
   .err{color:var(--danger);font-weight:600;margin-top:12px;font-size:13px}
   .err.warn{color:var(--warn)}
@@ -99,7 +102,7 @@
 <!-- ============ Upload screen ============ -->
 <section id="dropZone">
   <h2>MRAID Playable Ads Validator</h2>
-  <p>Drag your Playable Ad HTML file with <b>MRAID v2.0 or v3.0</b> support. The tool replaces the <code>&lt;script src="mraid.js"&gt;</code> tag with a simulated host, runs the ad in a phone frame and logs every MRAID response.</p>
+  <p>Drag your Playable Ad HTML file with <b>MRAID v2.0 or v3.0</b> support, or paste a link to it (AppLovin / Aliyun OSS preview links are unwrapped automatically). The tool replaces the <code>&lt;script src="mraid.js"&gt;</code> tag with a simulated host, runs the ad in a phone frame and logs every MRAID response.</p>
   <p>Max file size here is 10&nbsp;MB, but the usual max size for Playable Ads is around 5&nbsp;MB.</p>
   <div class="actions">
     <button class="btn primary" id="btnPick">Upload or drop HTML file</button>
@@ -107,7 +110,12 @@
     <input type="file" id="fileInput" accept=".html,.htm,text/html" style="display:none">
   </div>
   <div id="pasteWrap">
-    <textarea id="pasteArea" placeholder="&lt;!doctype html&gt; … paste your full playable HTML here …"></textarea>
+    <div class="urlRow">
+      <input type="url" id="urlInput" placeholder="https://… link to the playable HTML (AppLovin / Aliyun OSS preview links work too)" spellcheck="false">
+      <button class="btn primary sm" id="btnLoadUrl">Load URL</button>
+    </div>
+    <div class="or">— or —</div>
+    <textarea id="pasteArea" placeholder="&lt;!doctype html&gt; … paste your full playable HTML here (or just paste a URL) …"></textarea>
     <div style="margin-top:8px"><button class="btn primary sm" id="btnLoadPaste">Load pasted HTML</button></div>
   </div>
   <div class="note"><b>Note:</b> Always test the final files inside the real SDK environments. This tool does not judge the quality of your playable, it only exposes all MRAID calls and responses so you can verify the integration.</div>
@@ -303,7 +311,7 @@
   const MAX_WARN = 5 * 1024 * 1024, MAX_HARD = 10 * 1024 * 1024;
   const shim = $('mraidShim').textContent;
 
-  let blobURL = null, orientation = 'port', logs = [], stats = null, currentHTML = null, currentName = '';
+  let blobURL = null, orientation = 'port', logs = [], stats = null, currentHTML = null, currentName = '', currentBase = null;
 
   // ---------- helpers ----------
   function setError(msg, warn) { const e = $('errMsg'); e.textContent = msg || ''; e.className = 'err' + (warn ? ' warn' : ''); }
@@ -313,8 +321,9 @@
   }
 
   // ---------- inject shim ----------
-  function prepareHTML(text) {
+  function prepareHTML(text, baseURL) {
     const doc = new DOMParser().parseFromString(text, 'text/html');
+    const head = doc.head || doc.documentElement;
     let tag = null;
     for (const s of doc.getElementsByTagName('script')) {
       const src = (s.getAttribute('src') || '').trim();
@@ -324,18 +333,70 @@
     if (tag) { tag.removeAttribute('src'); tag.removeAttribute('type'); tag.textContent = shim; }
     else {
       const s = doc.createElement('script'); s.textContent = shim;
-      const head = doc.head || doc.documentElement;
       head.insertBefore(s, head.firstChild);
+    }
+    // When loaded from a URL, resolve relative assets (images, scripts…) against the original location.
+    if (baseURL && !doc.querySelector('base[href]')) {
+      const b = doc.createElement('base'); b.setAttribute('href', baseURL);
+      head.insertBefore(b, head.firstChild);
     }
     return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
   }
 
-  function loadHTML(text, name) {
+  // ---------- load from URL ----------
+  const URL_RE = /^\s*https?:\/\/\S+\s*$/i;
+  function fileNameFromURL(u) {
+    try { const url = new URL(u); return url.pathname.split('/').filter(Boolean).pop() || url.hostname; } catch (e) { return 'remote.html'; }
+  }
+  async function fetchText(url) {
+    const r = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+    return r.text();
+  }
+  // AppLovin preview links serve a tiny wrapper that loads "<hash>_js_load_gzip.js" and calls
+  // al_renderHtml({html: "<real playable>"}) via document.write. Extract the real playable so the
+  // size / mraid.js checks apply to the actual creative instead of the 600-byte wrapper.
+  async function unwrapLoader(text, baseURL) {
+    if (!/al_renderHtml/.test(text)) return null;
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    for (const s of doc.getElementsByTagName('script')) {
+      const src = (s.getAttribute('src') || '').trim();
+      if (!src) continue;
+      let abs; try { abs = new URL(src, baseURL).href; } catch (e) { continue; }
+      try {
+        const js = await fetchText(abs);
+        const m = js.match(/al_renderHtml\s*\(\s*(\{[\s\S]*\})\s*\)\s*;?\s*$/);
+        if (!m) continue;
+        const obj = JSON.parse(m[1]);
+        if (typeof obj.html === 'string' && obj.html.trim()) return { html: obj.html, src: abs };
+      } catch (e) { console.warn('unwrapLoader: ' + abs, e); }
+    }
+    return null;
+  }
+  async function loadFromURL(url) {
+    url = (url || '').trim(); setError('');
+    if (!/^https?:\/\//i.test(url)) { setError('Enter a valid http(s) URL.'); return; }
+    const btn = $('btnLoadUrl'); btn.disabled = true; btn.textContent = 'Loading…';
+    try {
+      const text = await fetchText(url);
+      if (new Blob([text]).size > MAX_HARD) { setError('The file is larger than 10 MB. Please use a smaller file.'); return; }
+      const inner = await unwrapLoader(text, url);
+      loadHTML(inner ? inner.html : text, fileNameFromURL(url), url);
+      addLog('host', 'Fetched from ' + url);
+      if (inner) addLog('host', 'AppLovin wrapper detected — real playable extracted from ' + inner.src + ' (' + (stats.fileSize / 1024).toFixed(1) + ' KB).');
+      else if (/al_renderHtml/.test(text)) addLog('console-warn', 'AppLovin wrapper detected but the loader script could not be fetched/parsed; running the wrapper as-is (size / mraid.js checks reflect the wrapper, not the creative).');
+    } catch (e) {
+      const cors = e instanceof TypeError;
+      setError('Could not load URL: ' + e.message + (cors ? ' — the server probably blocks cross-origin requests (CORS). Download the file in your browser and upload it instead.' : ''));
+    } finally { btn.disabled = false; btn.textContent = 'Load URL'; }
+  }
+
+  function loadHTML(text, name, baseURL) {
     resetStats(); logs = []; renderLogs();
     stats.fileSize = new Blob([text]).size;
     stats.usesVersion = /mraid\.getVersion|MRAID\s*3|getCurrentAppOrientation|exposureChange/i.test(text) ? '3.0 features' : '2.0 style';
-    currentHTML = text; currentName = name;
-    const prepared = prepareHTML(text);
+    currentHTML = text; currentName = name; currentBase = baseURL || null;
+    const prepared = prepareHTML(text, currentBase);
     if (blobURL) URL.revokeObjectURL(blobURL);
     blobURL = URL.createObjectURL(new Blob([prepared], { type: 'text/html' }));
     $('dropZone').style.display = 'none'; $('workspace').style.display = 'flex'; $('btnNewFile').style.display = '';
@@ -485,7 +546,14 @@
   $('btnPick').onclick = () => $('fileInput').click();
   $('fileInput').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
   $('btnTogglePaste').onclick = () => { const w = $('pasteWrap'); w.style.display = w.style.display === 'block' ? 'none' : 'block'; };
-  $('btnLoadPaste').onclick = () => { const t = $('pasteArea').value; if (!t.trim()) { setError('Paste some HTML first.'); return; } loadHTML(t, 'pasted.html'); };
+  $('btnLoadPaste').onclick = () => {
+    const t = $('pasteArea').value;
+    if (!t.trim()) { setError('Paste some HTML or a URL first.'); return; }
+    if (URL_RE.test(t)) { $('urlInput').value = t.trim(); loadFromURL(t); return; }   // a bare link was pasted
+    loadHTML(t, 'pasted.html');
+  };
+  $('btnLoadUrl').onclick = () => loadFromURL($('urlInput').value);
+  $('urlInput').onkeydown = e => { if (e.key === 'Enter') loadFromURL(e.target.value); };
   $('btnNewFile').onclick = () => { closePreview(); };
 
   const dz = $('dropZone');
@@ -505,7 +573,7 @@
   $('volume').onchange = e => send('volume', Number(e.target.value));
   $('device').onchange = () => { applyDevice(); send('orientation'); };
   $('zoom').onchange = applyDevice;
-  $('cmdReload').onclick = () => { if (currentHTML) loadHTML(currentHTML, currentName); };
+  $('cmdReload').onclick = () => { if (currentHTML) loadHTML(currentHTML, currentName, currentBase); };
   $('cmdClose').onclick = closePreview;
   function closePreview() {
     $('frame').src = 'about:blank';
